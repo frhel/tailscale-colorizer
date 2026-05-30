@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Tailscale Tag Colorizer",
+  "version": "0.2.0",
+  "description": "Recolor machines in the Tailscale admin console based on their tags. Never confuse prod with staging again.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://login.tailscale.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://login.tailscale.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tailscale Tag Colorizer",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
