@@ -102,11 +102,19 @@
     input.className = 'color-input';
     input.value = rule.color || '#888888';
 
+    // Clicking the swatch opens the native color picker
     swatch.onclick = function () { input.click(); };
+
+    // Live swatch preview while dragging the picker (no save)
     input.oninput = function () {
+      swatch.style.backgroundColor = input.value;
+    };
+
+    // Only save + broadcast when the user confirms the color
+    input.onchange = function () {
       rule.color = input.value;
       swatch.style.backgroundColor = input.value;
-      saveSettings();
+      saveSettingsNow();
       broadcast();
     };
 
