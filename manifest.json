@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tailscale Tag Colorizer",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Recolor machines in the Tailscale admin console based on their tags. Never confuse prod with staging again.",
   "permissions": ["storage", "tabs"],
   "host_permissions": ["https://login.tailscale.com/*"],
