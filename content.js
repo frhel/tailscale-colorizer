@@ -8,6 +8,7 @@
 
   // ── Constants ──────────────────────────────────────────────────────────
   const COLORIZED_ATTR = 'data-ts-colorized';
+  const PILL_ATTR       = 'data-ts-pill';
 
   // 12-colour rotating palette (Tailwind palette, well-spaced)
   const AUTO_PALETTE = [
@@ -118,45 +119,106 @@
     };
   }
 
-  function applyColorization(row, rule) {
-    if (row.hasAttribute(COLORIZED_ATTR)) return;
-    row.setAttribute(COLORIZED_ATTR, rule.tag);
+  // ── Pill-level colorization (per-tag, always applied) ──────────────────
+
+  function colorizePill(pill, rule) {
+    if (pill.hasAttribute(PILL_ATTR)) return;
+    pill.setAttribute(PILL_ATTR, rule.tag);
+    pill.style.setProperty('border-color', rule.color, 'important');
+    pill.style.setProperty('border-width', '1px', 'important');
+    const { r, g, b } = hexToRgb(rule.color);
+    pill.style.setProperty('background-color', `rgba(${r}, ${g}, ${b}, 0.12)`, 'important');
+  }
+
+  function uncolorizePill(pill) {
+    pill.removeAttribute(PILL_ATTR);
+    pill.style.removeProperty('border-color');
+    pill.style.removeProperty('border-width');
+    pill.style.removeProperty('background-color');
+  }
+
+  // ── Row-level colorization (handles single-tag and multi-tag rows) ─────
+
+  function applyRowColorization(row, tags, ruleMap) {
+    row.setAttribute(COLORIZED_ATTR, tags.join(','));
 
     const mode = settings.highlightMode || 'border-left';
     const opacity = settings.bgOpacity || 0.10;
 
     if (mode === 'border-left' || mode === 'both') {
-      row.style.setProperty('border-left', `4px solid ${rule.color}`, 'important');
-      row.style.setProperty('padding-left', '12px', 'important');
+      if (tags.length === 1) {
+        const rule = ruleMap.get(tags[0].toLowerCase());
+        row.style.setProperty('border-left', `4px solid ${rule.color}`, 'important');
+        row.style.setProperty('padding-left', '12px', 'important');
+      } else {
+        // Stacked "borders" using box-shadow (left-side bars)
+        var boxShadow = '';
+        for (var i = 0; i < tags.length; i++) {
+          var rule = ruleMap.get(tags[i].toLowerCase());
+          if (!rule) continue;
+          var offset = 4 + i * 4;
+          boxShadow += (boxShadow ? ', ' : '') + offset + 'px 0 0 0 ' + rule.color;
+        }
+        var pad = 4 + tags.length * 4;
+        row.style.setProperty('box-shadow', boxShadow, 'important');
+        row.style.setProperty('padding-left', pad + 'px', 'important');
+      }
     }
+
     if (mode === 'bg-tint' || mode === 'both') {
-      const { r, g, b } = hexToRgb(rule.color);
-      row.style.setProperty(
-        'background-color', `rgba(${r}, ${g}, ${b}, ${opacity})`, 'important'
-      );
+      if (tags.length === 1) {
+        var rule = ruleMap.get(tags[0].toLowerCase());
+        var rgb = hexToRgb(rule.color);
+        row.style.setProperty(
+          'background-color', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`, 'important'
+        );
+      } else {
+        // Average all tag colours for a blended background tint
+        var r = 0, g = 0, b = 0, count = 0;
+        for (var i = 0; i < tags.length; i++) {
+          var rule = ruleMap.get(tags[i].toLowerCase());
+          if (!rule) continue;
+          var rgb = hexToRgb(rule.color);
+          r += rgb.r; g += rgb.g; b += rgb.b;
+          count++;
+        }
+        if (count > 0) {
+          r = Math.round(r / count);
+          g = Math.round(g / count);
+          b = Math.round(b / count);
+          row.style.setProperty(
+            'background-color', `rgba(${r}, ${g}, ${b}, ${opacity})`, 'important'
+          );
+        }
+      }
     }
   }
 
-  function removeColorization(row) {
+  // ── Cleanup ────────────────────────────────────────────────────────────
+
+  function removeRowColorization(row) {
     row.removeAttribute(COLORIZED_ATTR);
     row.style.removeProperty('border-left');
     row.style.removeProperty('padding-left');
     row.style.removeProperty('background-color');
+    row.style.removeProperty('box-shadow');
   }
 
   function removeAllColorization() {
-    document.querySelectorAll(`[${COLORIZED_ATTR}]`).forEach(removeColorization);
+    document.querySelectorAll(`[${COLORIZED_ATTR}]`).forEach(removeRowColorization);
+    document.querySelectorAll(`[${PILL_ATTR}]`).forEach(uncolorizePill);
   }
 
   // ── Tag discovery ─────────────────────────────────────────────────────
 
   function findTagElements(root) {
     // The Tailscale admin console renders tags as:
-    //   <div class="...rounded-full...">
-    //     <span class="text-text-muted">tag:</span>
-    //     <span class="font-medium">tagname</span>
+    //   <div class="...rounded-full...">            ← pill container
+    //     <span class="text-text-muted">tag:</span> ← label
+    //     <span class="font-medium">tagname</span>  ← value
     //   </div>
-    // We find tag-label spans and grab the adjacent value span.
+    // We find label spans, grab the adjacent value span, and walk up
+    // to the pill container for per-pill coloring.
     const results = [];
     const labels = root.querySelectorAll('span.text-text-muted');
     for (const label of labels) {
@@ -166,7 +228,13 @@
       if (!valueEl) continue;
       const val = valueEl.textContent.trim();
       if (!val || val.length > 64) continue;
-      results.push({ tag: 'tag:' + val.toLowerCase(), el: valueEl });
+      // Walk up to the rounded-full pill container
+      const pill = label.closest('[class*="rounded-full"]');
+      results.push({
+        tag: 'tag:' + val.toLowerCase(),
+        el: valueEl,
+        pill: pill || label.parentElement,  // fallback to direct parent
+      });
     }
     return results;
   }
@@ -189,23 +257,40 @@
     if (hits.length === 0) return;
 
     // 2. Collect unique tags & ensure they have rules
-    const discovered = [...new Set(hits.map(h => h.tag))];
+    const discovered = [...new Set(hits.map(function (h) { return h.tag; }))];
     ensureRulesForTags(discovered);
 
     // 3. Rebuild rule map (may have new entries from ensureRulesForTags)
     const ruleMap = buildRuleMap();
 
-    // 4. Color rows
-    const colored = new Set();
-    for (const { tag, el } of hits) {
-      const rule = ruleMap.get(tag.toLowerCase());
+    // 4. Group hits by row so multi-tag machines are handled together
+    const rowMap = new Map();  // row -> { tags: Set, pills: [{pill, rule}] }
+    for (var i = 0; i < hits.length; i++) {
+      var hit = hits[i];
+      var rule = ruleMap.get(hit.tag.toLowerCase());
       if (!rule) continue;
-      const row = findRow(el);
-      if (row && !colored.has(row)) {
-        colored.add(row);
-        applyColorization(row, rule);
+      var row = findRow(hit.el);
+      if (!row) continue;
+
+      if (!rowMap.has(row)) {
+        rowMap.set(row, { tags: new Set(), pills: [] });
       }
+      var entry = rowMap.get(row);
+      entry.tags.add(rule.tag);
+      entry.pills.push({ pill: hit.pill, rule: rule });
     }
+
+    // 5. Apply colorization — pills first, then rows
+    rowMap.forEach(function (entry, row) {
+      // Color each pill individually (pill coloring always visible)
+      for (var p = 0; p < entry.pills.length; p++) {
+        var pr = entry.pills[p];
+        colorizePill(pr.pill, pr.rule);
+      }
+      // Color the row with ALL its tags (stacked borders / blended bg)
+      var tagsArr = Array.from(entry.tags);
+      applyRowColorization(row, tagsArr, ruleMap);
+    });
   }
 
   function debouncedScan() {
