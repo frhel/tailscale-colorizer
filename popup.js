@@ -10,6 +10,7 @@
   // ── State ──────────────────────────────────────────────────────────────
   let rules = [];               // [{ tag, color }]
   let enabled = true;
+  let sortEnabled = false;
   let highlightMode = 'border-left';
   let bgOpacity = 0.10;
   let saveTimer = null;
@@ -42,6 +43,7 @@
 
     rules         = Array.isArray(raw.rules) ? raw.rules : [];
     enabled       = raw.enabled !== false;
+    sortEnabled   = raw.sortEnabled === true;
     highlightMode = raw.highlightMode || 'border-left';
     bgOpacity     = typeof raw.bgOpacity === 'number' ? raw.bgOpacity : 0.10;
   }
@@ -49,7 +51,7 @@
   function saveSettingsNow() {
     clearTimeout(saveTimer);
     try {
-      storage.set({ tsColorizerSettings: { enabled, rules, highlightMode, bgOpacity } });
+      storage.set({ tsColorizerSettings: { enabled, sortEnabled, rules, highlightMode, bgOpacity } });
     } catch (_) { /* storage gone — nothing we can do */ }
   }
 
@@ -71,6 +73,10 @@
 
     if (toggle) toggle.checked = enabled;
     if (label)  label.textContent = enabled ? 'Enabled' : 'Disabled';
+    var sortTog = $('sortToggle');
+    var sortLbl = $('sortLabel');
+    if (sortTog) sortTog.checked = sortEnabled;
+    if (sortLbl) sortLbl.textContent = 'Sort by tag';
     if (mode)   mode.value = highlightMode;
     const pct = Math.round(bgOpacity * 100);
     if (slider) slider.value = pct;
@@ -238,17 +244,11 @@
       broadcast();
     };
 
-    var sort = $('sortBtn');
-    if (sort) sort.onclick = function () {
-      try {
-        chrome.tabs.query({ url: 'https://login.tailscale.com/*' }, function (tabs) {
-          for (var i = 0; i < tabs.length; i++) {
-            chrome.tabs.sendMessage(tabs[i].id, { action: 'sort' }).catch(function () {});
-          }
-        });
-      } catch (_) {
-        try { chrome.runtime.sendMessage({ action: 'sort' }).catch(function () {}); } catch (_) {}
-      }
+    var sort = $('sortToggle');
+    if (sort) sort.onchange = function () {
+      sortEnabled = sort.checked;
+      saveSettingsNow();
+      broadcast();
     };
   }
 

@@ -19,6 +19,7 @@
 
   const DEFAULT_SETTINGS = {
     enabled: true,
+    sortEnabled: false,
     rules: [],            // { tag, color }[] — populated by discovery
     highlightMode: 'border-left',
     bgOpacity: 0.10,
@@ -43,6 +44,7 @@
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) raw = {};
     settings = {
       enabled:       raw.enabled !== false,
+      sortEnabled:   raw.sortEnabled === true,
       rules:         Array.isArray(raw.rules) ? raw.rules : [],
       highlightMode: raw.highlightMode || 'border-left',
       bgOpacity:     typeof raw.bgOpacity === 'number' ? raw.bgOpacity : 0.10,
@@ -60,9 +62,16 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.tsColorizerSettings) {
+      var wasSortEnabled = settings.sortEnabled;
       settings = changes.tsColorizerSettings.newValue || { ...DEFAULT_SETTINGS };
       removeAllColorization();
-      if (settings.enabled) scanAndColorize();
+      if (settings.enabled) {
+        scanAndColorize();
+        // Restore original order if user toggled sort off
+        if (!settings.sortEnabled && wasSortEnabled) {
+          restoreOriginalOrder();
+        }
+      }
     }
     if (area === 'local' && changes.tsRescanRequest) {
       rescan();
@@ -197,11 +206,46 @@
 
   // ── Sorting ─────────────────────────────────────────────────────────────
 
+  /** Snapshot the current DOM row order so we can restore it later. */
+  function snapshotRowOrder(tbody) {
+    var rows = tbody.querySelectorAll('tr');
+    var alreadyDone = false;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].hasAttribute('data-ts-original-pos')) { alreadyDone = true; break; }
+    }
+    if (alreadyDone) return;  // only snapshot once
+    for (var j = 0; j < rows.length; j++) {
+      rows[j].setAttribute('data-ts-original-pos', j);
+    }
+  }
+
+  /** Restore rows to their snapshot-d original order.
+      Rows added after the snapshot (e.g. via observer) fall to the bottom. */
+  function restoreOriginalOrder() {
+    var tbody = document.querySelector('table.tb tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var hasPos = rows.some(function (r) { return r.hasAttribute('data-ts-original-pos'); });
+    if (!hasPos) return;
+    // Fallback position for rows added after the snapshot
+    var maxPos = rows.length;
+    rows.sort(function (a, b) {
+      var pa = a.hasAttribute('data-ts-original-pos') ? parseInt(a.getAttribute('data-ts-original-pos')) : maxPos;
+      var pb = b.hasAttribute('data-ts-original-pos') ? parseInt(b.getAttribute('data-ts-original-pos')) : maxPos;
+      return pa - pb;
+    });
+    for (var i = 0; i < rows.length; i++) {
+      tbody.appendChild(rows[i]);
+    }
+  }
+
   /** Sort all rows in table.tb alphabetically by their primary tag.
+      Snapshot-s original order first so unsorting can restore it.
       Rows without a tag are sent to the bottom. */
   function sortRowsByTag() {
     var tbody = document.querySelector('table.tb tbody');
     if (!tbody) return;
+    snapshotRowOrder(tbody);
     var rows = Array.from(tbody.querySelectorAll('tr'));
     if (rows.length < 2) return;
 
@@ -323,6 +367,8 @@
       }
     });
 
+    // 5. Auto-sort if the sort toggle is enabled
+    if (settings.sortEnabled) sortRowsByTag();
   }
 
   function debouncedScan() {
@@ -381,10 +427,6 @@
     if (msg.action === 'rescan') {
       rescan().then(() => sendResponse({ ok: true }));
       return true;  // keep channel open for async response
-    }
-    if (msg.action === 'sort') {
-      sortRowsByTag();
-      sendResponse({ ok: true });
     }
   });
 
