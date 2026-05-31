@@ -280,16 +280,19 @@
       entry.pills.push({ pill: hit.pill, rule: rule });
     }
 
-    // 5. Apply colorization — pills first, then rows
+    // 5. Apply colorization — pills first, then rows (if mode allows)
+    var pillOnly = settings.highlightMode === 'pill-only';
     rowMap.forEach(function (entry, row) {
       // Color each pill individually (pill coloring always visible)
       for (var p = 0; p < entry.pills.length; p++) {
         var pr = entry.pills[p];
         colorizePill(pr.pill, pr.rule);
       }
-      // Color the row with ALL its tags (stacked borders / blended bg)
-      var tagsArr = Array.from(entry.tags);
-      applyRowColorization(row, tagsArr, ruleMap);
+      // Row coloring: skip in pill-only mode
+      if (!pillOnly) {
+        var tagsArr = Array.from(entry.tags);
+        applyRowColorization(row, tagsArr, ruleMap);
+      }
     });
   }
 
