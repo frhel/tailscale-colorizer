@@ -237,6 +237,19 @@
       render();
       broadcast();
     };
+
+    var sort = $('sortBtn');
+    if (sort) sort.onclick = function () {
+      try {
+        chrome.tabs.query({ url: 'https://login.tailscale.com/*' }, function (tabs) {
+          for (var i = 0; i < tabs.length; i++) {
+            chrome.tabs.sendMessage(tabs[i].id, { action: 'sort' }).catch(function () {});
+          }
+        });
+      } catch (_) {
+        try { chrome.runtime.sendMessage({ action: 'sort' }).catch(function () {}); } catch (_) {}
+      }
+    };
   }
 
   // ── Fallback UI ─────────────────────────────────────────────────────────

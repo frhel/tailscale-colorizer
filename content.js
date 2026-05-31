@@ -9,6 +9,7 @@
   // ── Constants ──────────────────────────────────────────────────────────
   const COLORIZED_ATTR = 'data-ts-colorized';
   const PILL_ATTR       = 'data-ts-pill';
+  const HANDLE_CLASS    = 'ts-sort-handle';
 
   // 12-colour rotating palette (Tailwind palette, well-spaced)
   const AUTO_PALETTE = [
@@ -193,6 +194,149 @@
   function removeAllColorization() {
     document.querySelectorAll(`[${COLORIZED_ATTR}]`).forEach(removeRowColorization);
     document.querySelectorAll(`[${PILL_ATTR}]`).forEach(uncolorizePill);
+    removeDragHandles();
+  }
+
+  // ── Sorting ─────────────────────────────────────────────────────────────
+
+  /** Sort all rows in table.tb alphabetically by their primary tag.
+      Rows without a tag are sent to the bottom. */
+  function sortRowsByTag() {
+    var tbody = document.querySelector('table.tb tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length < 2) return;
+
+    // Separate tagged and untagged rows
+    var tagged = [];
+    var untagged = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var attr = r.getAttribute(COLORIZED_ATTR);
+      if (attr) {
+        var primary = attr.split(',')[0].toLowerCase();
+        tagged.push({ row: r, tag: primary });
+      } else {
+        untagged.push(r);
+      }
+    }
+
+    if (tagged.length < 2) return;
+
+    tagged.sort(function (a, b) {
+      return a.tag.localeCompare(b.tag);
+    });
+
+    // Reorder: remove all, re-insert sorted (tagged first, then untagged)
+    for (var j = 0; j < rows.length; j++) {
+      tbody.removeChild(rows[j]);
+    }
+    for (var k = 0; k < tagged.length; k++) {
+      tbody.appendChild(tagged[k].row);
+    }
+    for (var l = 0; l < untagged.length; l++) {
+      tbody.appendChild(untagged[l]);
+    }
+  }
+
+  // ── Drag-and-drop handles ───────────────────────────────────────────────
+
+  var draggedRow = null;
+
+  function installDragHandles() {
+    var rows = document.querySelectorAll('table.tb tr[' + COLORIZED_ATTR + ']');
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (row.querySelector('.' + HANDLE_CLASS)) continue; // already installed
+
+      var td = document.createElement('td');
+      td.className = HANDLE_CLASS;
+      var grip = document.createElement('span');
+      grip.textContent = '\u22EE\u22EE'; // ⋮⋮
+      grip.draggable = true;
+      grip.title = 'Drag to reorder';
+      td.appendChild(grip);
+
+      // Inline styles for the handle cell and grip
+      td.style.cssText =
+        'width:22px;min-width:22px;padding:0 3px;vertical-align:middle;' +
+        'text-align:center;cursor:grab;user-select:none;' +
+        'color:#6b7280;font-size:11px;line-height:1;';
+      grip.style.cssText = 'display:inline-block;cursor:grab;';
+
+      grip.addEventListener('dragstart', onDragStart);
+      grip.addEventListener('dragend',   onDragEnd);
+
+      // Insert as first cell in the row
+      row.insertBefore(td, row.firstChild);
+
+      // Drop targets: the row itself and its parent tbody
+      row.addEventListener('dragover',  onDragOver);
+      row.addEventListener('dragleave', onDragLeave);
+      row.addEventListener('drop',     onDrop);
+    }
+  }
+
+  function removeDragHandles() {
+    var handles = document.querySelectorAll('.' + HANDLE_CLASS);
+    for (var i = 0; i < handles.length; i++) {
+      handles[i].remove();
+    }
+  }
+
+  // ── Drag event handlers ─────────────────────────────────────────────────
+
+  function onDragStart(e) {
+    draggedRow = e.target.closest('tr');
+    if (!draggedRow) return;
+    draggedRow.style.opacity = '0.45';
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+  }
+
+  function onDragEnd(e) {
+    if (draggedRow) {
+      draggedRow.style.opacity = '';
+    }
+    clearDragIndicators();
+    draggedRow = null;
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var row = e.target.closest('tr');
+    if (!row || row === draggedRow) return;
+    clearDragIndicators();
+    row.classList.add('ts-drag-target');
+  }
+
+  function onDragLeave(e) {
+    var row = e.target.closest('tr');
+    if (row) row.classList.remove('ts-drag-target');
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    var targetRow = e.target.closest('tr');
+    if (!targetRow || !draggedRow || targetRow === draggedRow) return;
+    clearDragIndicators();
+
+    var tbody = targetRow.parentElement;
+    // Determine whether to insert above or below based on cursor Y
+    var rect = targetRow.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) {
+      tbody.insertBefore(draggedRow, targetRow);
+    } else {
+      tbody.insertBefore(draggedRow, targetRow.nextElementSibling);
+    }
+  }
+
+  function clearDragIndicators() {
+    var targets = document.querySelectorAll('.ts-drag-target');
+    for (var i = 0; i < targets.length; i++) {
+      targets[i].classList.remove('ts-drag-target');
+    }
   }
 
   // ── Tag discovery ─────────────────────────────────────────────────────
@@ -280,6 +424,9 @@
         applyRowColorization(row, tagsArr, ruleMap);
       }
     });
+
+    // 6. Install drag handles on newly colorized rows
+    installDragHandles();
   }
 
   function debouncedScan() {
@@ -339,11 +486,22 @@
       rescan().then(() => sendResponse({ ok: true }));
       return true;  // keep channel open for async response
     }
+    if (msg.action === 'sort') {
+      sortRowsByTag();
+      sendResponse({ ok: true });
+    }
   });
 
   // ── Init ───────────────────────────────────────────────────────────────
 
   async function init() {
+    // Inject drag-handle indicator styles
+    var style = document.createElement('style');
+    style.textContent =
+      '.ts-drag-target{outline:2px dashed #7c8aff;outline-offset:-2px;}' +
+      '.' + HANDLE_CLASS + ':hover span{color:#c4b5fd;}';
+    document.head.appendChild(style);
+
     await loadSettings();
     if (settings.enabled) {
       scanAndColorize();
