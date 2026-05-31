@@ -156,7 +156,7 @@
         for (var i = 0; i < tags.length; i++) {
           var rule = ruleMap.get(tags[i].toLowerCase());
           if (!rule) continue;
-          var offset = 4 + i * 4;
+          var offset = -(4 + i * 4);  // negative = left side
           boxShadow += (boxShadow ? ', ' : '') + offset + 'px 0 0 0 ' + rule.color;
         }
         var pad = 4 + tags.length * 4;
