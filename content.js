@@ -239,9 +239,10 @@
     }
   }
 
-  /** Sort all rows in table.tb alphabetically by their primary tag.
-      Snapshot-s original order first so unsorting can restore it.
-      Rows without a tag are sent to the bottom. */
+  /** Sort all rows in table.tb by tag, grouping machines that share tags.
+      Uses frequency-weighted grouping: each machine picks its most-shared
+      tag, then rows sort by share-count (desc) → tag name (asc).
+      Untagged rows go to the bottom. Snapshot-s original order first. */
   function sortRowsByTag() {
     var tbody = document.querySelector('table.tb tbody');
     if (!tbody) return;
@@ -249,36 +250,55 @@
     var rows = Array.from(tbody.querySelectorAll('tr'));
     if (rows.length < 2) return;
 
-    // Separate tagged and untagged rows
-    var tagged = [];
-    var untagged = [];
+    // ── Pass 1: collect tag frequencies and per-row tag sets ──────────────
+    var tagFreq = new Map();   // tag → occurrence count across all machines
+    var rowTags = [];          // { row, tags[] } for tagged rows
+    var untagged = [];         // rows with no colorized tags
+
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       var attr = r.getAttribute(COLORIZED_ATTR);
-      if (attr) {
-        var primary = attr.split(',')[0].toLowerCase();
-        tagged.push({ row: r, tag: primary });
-      } else {
-        untagged.push(r);
+      if (!attr) { untagged.push(r); continue; }
+      var tags = attr.split(',').map(function (t) { return t.toLowerCase().trim(); });
+      rowTags.push({ row: r, tags: tags });
+      for (var j = 0; j < tags.length; j++) {
+        var t = tags[j];
+        tagFreq.set(t, (tagFreq.get(t) || 0) + 1);
       }
     }
 
-    if (tagged.length < 2) return;
+    if (rowTags.length < 2) return;  // nothing to sort
 
-    tagged.sort(function (a, b) {
-      return a.tag.localeCompare(b.tag);
+    // ── Pass 2: pick best grouping tag per machine ────────────────────────
+    // Best = highest frequency; tiebreak by alphabetical order.
+    for (var k = 0; k < rowTags.length; k++) {
+      var entry = rowTags[k];
+      var bestTag = entry.tags[0];
+      var bestFreq = tagFreq.get(bestTag) || 0;
+      for (var m = 1; m < entry.tags.length; m++) {
+        var t = entry.tags[m];
+        var f = tagFreq.get(t) || 0;
+        if (f > bestFreq || (f === bestFreq && t < bestTag)) {
+          bestTag = t;
+          bestFreq = f;
+        }
+      }
+      entry.bestTag  = bestTag;
+      entry.bestFreq = bestFreq;
+    }
+
+    // ── Pass 3: sort tagged rows ─────────────────────────────────────────
+    // Frequency (desc) → tag name (asc) → stable tiebreaker on full tag set
+    rowTags.sort(function (a, b) {
+      if (a.bestFreq !== b.bestFreq) return b.bestFreq - a.bestFreq;
+      if (a.bestTag  !== b.bestTag)  return a.bestTag.localeCompare(b.bestTag);
+      return a.tags.join(',').localeCompare(b.tags.join(','));
     });
 
-    // Reorder: remove all, re-insert sorted (tagged first, then untagged)
-    for (var j = 0; j < rows.length; j++) {
-      tbody.removeChild(rows[j]);
-    }
-    for (var k = 0; k < tagged.length; k++) {
-      tbody.appendChild(tagged[k].row);
-    }
-    for (var l = 0; l < untagged.length; l++) {
-      tbody.appendChild(untagged[l]);
-    }
+    // ── Pass 4: reorder DOM (tagged first, then untagged) ────────────────
+    for (var n = 0; n < rows.length; n++) { tbody.removeChild(rows[n]); }
+    for (var p = 0; p < rowTags.length; p++) { tbody.appendChild(rowTags[p].row); }
+    for (var q = 0; q < untagged.length; q++) { tbody.appendChild(untagged[q]); }
   }
 
   // ── Tag discovery ─────────────────────────────────────────────────────
