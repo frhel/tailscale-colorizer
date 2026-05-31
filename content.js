@@ -146,50 +146,36 @@
     const opacity = settings.bgOpacity || 0.10;
 
     if (mode === 'border-left' || mode === 'both') {
-      if (tags.length === 1) {
-        const rule = ruleMap.get(tags[0].toLowerCase());
-        row.style.setProperty('border-left', `4px solid ${rule.color}`, 'important');
-        row.style.setProperty('padding-left', '12px', 'important');
-      } else {
-        // Stacked "borders" using box-shadow (left-side bars)
-        var boxShadow = '';
-        for (var i = 0; i < tags.length; i++) {
-          var rule = ruleMap.get(tags[i].toLowerCase());
-          if (!rule) continue;
-          var offset = -(4 + i * 4);  // negative = left side
-          boxShadow += (boxShadow ? ', ' : '') + offset + 'px 0 0 0 ' + rule.color;
-        }
-        var pad = 4 + tags.length * 4;
-        row.style.setProperty('box-shadow', boxShadow, 'important');
-        row.style.setProperty('padding-left', pad + 'px', 'important');
+      // Unified box-shadow approach for all tag counts (1..n)
+      var boxShadow = '';
+      for (var i = 0; i < tags.length; i++) {
+        var rule = ruleMap.get(tags[i].toLowerCase());
+        if (!rule) continue;
+        var offset = -(4 + i * 4);  // negative = left side
+        boxShadow += (boxShadow ? ', ' : '') + offset + 'px 0 0 0 ' + rule.color;
       }
+      var pad = 4 + tags.length * 4;
+      row.style.setProperty('box-shadow', boxShadow, 'important');
+      row.style.setProperty('padding-left', pad + 'px', 'important');
     }
 
     if (mode === 'bg-tint' || mode === 'both') {
-      if (tags.length === 1) {
-        var rule = ruleMap.get(tags[0].toLowerCase());
+      // Average all tag colours for a blended background tint
+      var r = 0, g = 0, b = 0, count = 0;
+      for (var i = 0; i < tags.length; i++) {
+        var rule = ruleMap.get(tags[i].toLowerCase());
+        if (!rule) continue;
         var rgb = hexToRgb(rule.color);
+        r += rgb.r; g += rgb.g; b += rgb.b;
+        count++;
+      }
+      if (count > 0) {
+        r = Math.round(r / count);
+        g = Math.round(g / count);
+        b = Math.round(b / count);
         row.style.setProperty(
-          'background-color', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`, 'important'
+          'background-color', `rgba(${r}, ${g}, ${b}, ${opacity})`, 'important'
         );
-      } else {
-        // Average all tag colours for a blended background tint
-        var r = 0, g = 0, b = 0, count = 0;
-        for (var i = 0; i < tags.length; i++) {
-          var rule = ruleMap.get(tags[i].toLowerCase());
-          if (!rule) continue;
-          var rgb = hexToRgb(rule.color);
-          r += rgb.r; g += rgb.g; b += rgb.b;
-          count++;
-        }
-        if (count > 0) {
-          r = Math.round(r / count);
-          g = Math.round(g / count);
-          b = Math.round(b / count);
-          row.style.setProperty(
-            'background-color', `rgba(${r}, ${g}, ${b}, ${opacity})`, 'important'
-          );
-        }
       }
     }
   }
