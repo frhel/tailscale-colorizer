@@ -20,7 +20,8 @@
   const DEFAULT_SETTINGS = {
     enabled: true,
     sortEnabled: false,
-    rules: [],            // { tag, color }[] — populated by discovery
+    sortMode: 'frequency',
+    rules: [],            // { tag, color, sortable? }[] — populated by discovery
     highlightMode: 'border-left',
     bgOpacity: 0.10,
   };
@@ -45,6 +46,7 @@
     settings = {
       enabled:       raw.enabled !== false,
       sortEnabled:   raw.sortEnabled === true,
+      sortMode:      raw.sortMode || 'frequency',
       rules:         Array.isArray(raw.rules) ? raw.rules : [],
       highlightMode: raw.highlightMode || 'border-left',
       bgOpacity:     typeof raw.bgOpacity === 'number' ? raw.bgOpacity : 0.10,
@@ -109,7 +111,7 @@
         r => r.tag && r.tag.toLowerCase() === key
       );
       if (!exists) {
-        settings.rules.push({ tag, color: paletteColor(tag) });
+        settings.rules.push({ tag, color: paletteColor(tag), sortable: true });
         changed = true;
       }
     }
@@ -239,10 +241,13 @@
     }
   }
 
-  /** Sort all rows in table.tb by tag, grouping machines that share tags.
-      Uses frequency-weighted grouping: each machine picks its most-shared
-      tag, then rows sort by share-count (desc) → tag name (asc).
-      Untagged rows go to the bottom. Snapshot-s original order first. */
+  /** Sort all rows in table.tb by tag according to settings.sortMode.
+      - 'frequency': each machine picks its most-shared sortable tag, then
+        rows sort by share-count (desc) → tag name (asc).
+      - 'alphabetical': sort by the first sortable tag alphabetically.
+      Tags with sortable=false are excluded from sort-key selection.
+      Untagged / fully-excluded rows go to the bottom.
+      Snapshot-s original order first. */
   function sortRowsByTag() {
     var tbody = document.querySelector('table.tb tbody');
     if (!tbody) return;
@@ -250,52 +255,79 @@
     var rows = Array.from(tbody.querySelectorAll('tr'));
     if (rows.length < 2) return;
 
-    // ── Pass 1: collect tag frequencies and per-row tag sets ──────────────
-    var tagFreq = new Map();   // tag → occurrence count across all machines
+    var ruleMap = buildRuleMap();
+    var mode = settings.sortMode || 'frequency';
+
+    // ── Pass 1: collect per-row sortable tag sets and frequency ────────────
+    var tagFreq = new Map();   // tag → occurrence count (sortable tags only)
     var rowTags = [];          // { row, tags[] } for tagged rows
-    var untagged = [];         // rows with no colorized tags
+    var untagged = [];         // rows with no colorized (or all-excluded) tags
 
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       var attr = r.getAttribute(COLORIZED_ATTR);
       if (!attr) { untagged.push(r); continue; }
-      var tags = attr.split(',').map(function (t) { return t.toLowerCase().trim(); });
-      rowTags.push({ row: r, tags: tags });
-      for (var j = 0; j < tags.length; j++) {
-        var t = tags[j];
-        tagFreq.set(t, (tagFreq.get(t) || 0) + 1);
+      var allTags = attr.split(',').map(function (t) { return t.toLowerCase().trim(); });
+      // Filter to sortable tags only
+      var sortableTags = [];
+      for (var j = 0; j < allTags.length; j++) {
+        var t = allTags[j];
+        var rule = ruleMap.get(t);
+        if (rule && rule.sortable !== false) {
+          sortableTags.push(t);
+          tagFreq.set(t, (tagFreq.get(t) || 0) + 1);
+        }
+      }
+      if (sortableTags.length === 0) {
+        untagged.push(r);  // all tags excluded → treat as untagged
+      } else {
+        rowTags.push({ row: r, tags: sortableTags });
       }
     }
 
     if (rowTags.length < 2) return;  // nothing to sort
 
-    // ── Pass 2: pick best grouping tag per machine ────────────────────────
-    // Best = highest frequency; tiebreak by alphabetical order.
-    for (var k = 0; k < rowTags.length; k++) {
-      var entry = rowTags[k];
-      var bestTag = entry.tags[0];
-      var bestFreq = tagFreq.get(bestTag) || 0;
-      for (var m = 1; m < entry.tags.length; m++) {
-        var t = entry.tags[m];
-        var f = tagFreq.get(t) || 0;
-        if (f > bestFreq || (f === bestFreq && t < bestTag)) {
-          bestTag = t;
-          bestFreq = f;
+    // ── Pass 2: pick sort key per machine ─────────────────────────────────
+    if (mode === 'frequency') {
+      // Best grouping tag = highest frequency → tiebreak alphabetical
+      for (var k = 0; k < rowTags.length; k++) {
+        var entry = rowTags[k];
+        var bestTag = entry.tags[0];
+        var bestFreq = tagFreq.get(bestTag) || 0;
+        for (var m = 1; m < entry.tags.length; m++) {
+          var t = entry.tags[m];
+          var f = tagFreq.get(t) || 0;
+          if (f > bestFreq || (f === bestFreq && t < bestTag)) {
+            bestTag = t;
+            bestFreq = f;
+          }
         }
+        entry.sortKey = bestTag;
+        entry.sortFreq = bestFreq;
       }
-      entry.bestTag  = bestTag;
-      entry.bestFreq = bestFreq;
+    } else {
+      // Alphabetical: first sortable tag is the key
+      for (var k = 0; k < rowTags.length; k++) {
+        rowTags[k].sortKey = rowTags[k].tags[0];
+        rowTags[k].sortFreq = 0; // unused
+      }
     }
 
-    // ── Pass 3: sort tagged rows ─────────────────────────────────────────
-    // Frequency (desc) → tag name (asc) → stable tiebreaker on full tag set
-    rowTags.sort(function (a, b) {
-      if (a.bestFreq !== b.bestFreq) return b.bestFreq - a.bestFreq;
-      if (a.bestTag  !== b.bestTag)  return a.bestTag.localeCompare(b.bestTag);
-      return a.tags.join(',').localeCompare(b.tags.join(','));
-    });
+    // ── Pass 3: sort tagged rows ──────────────────────────────────────────
+    if (mode === 'frequency') {
+      rowTags.sort(function (a, b) {
+        if (a.sortFreq !== b.sortFreq) return b.sortFreq - a.sortFreq;
+        if (a.sortKey  !== b.sortKey)  return a.sortKey.localeCompare(b.sortKey);
+        return a.tags.join(',').localeCompare(b.tags.join(','));
+      });
+    } else {
+      rowTags.sort(function (a, b) {
+        if (a.sortKey !== b.sortKey) return a.sortKey.localeCompare(b.sortKey);
+        return a.tags.join(',').localeCompare(b.tags.join(','));
+      });
+    }
 
-    // ── Pass 4: reorder DOM (tagged first, then untagged) ────────────────
+    // ── Pass 4: reorder DOM (tagged first, then untagged) ──────────────────
     for (var n = 0; n < rows.length; n++) { tbody.removeChild(rows[n]); }
     for (var p = 0; p < rowTags.length; p++) { tbody.appendChild(rowTags[p].row); }
     for (var q = 0; q < untagged.length; q++) { tbody.appendChild(untagged[q]); }

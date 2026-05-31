@@ -11,6 +11,7 @@
   let rules = [];               // [{ tag, color }]
   let enabled = true;
   let sortEnabled = false;
+  let sortMode = 'frequency';
   let highlightMode = 'border-left';
   let bgOpacity = 0.10;
   let saveTimer = null;
@@ -44,6 +45,7 @@
     rules         = Array.isArray(raw.rules) ? raw.rules : [];
     enabled       = raw.enabled !== false;
     sortEnabled   = raw.sortEnabled === true;
+    sortMode      = raw.sortMode || 'frequency';
     highlightMode = raw.highlightMode || 'border-left';
     bgOpacity     = typeof raw.bgOpacity === 'number' ? raw.bgOpacity : 0.10;
   }
@@ -51,7 +53,7 @@
   function saveSettingsNow() {
     clearTimeout(saveTimer);
     try {
-      storage.set({ tsColorizerSettings: { enabled, sortEnabled, rules, highlightMode, bgOpacity } });
+      storage.set({ tsColorizerSettings: { enabled, sortEnabled, sortMode, rules, highlightMode, bgOpacity } });
     } catch (_) { /* storage gone — nothing we can do */ }
   }
 
@@ -77,6 +79,8 @@
     var sortLbl = $('sortLabel');
     if (sortTog) sortTog.checked = sortEnabled;
     if (sortLbl) sortLbl.textContent = 'Sort by tag';
+    var sortModeSel = $('sortMode');
+    if (sortModeSel) sortModeSel.value = sortMode;
     if (mode)   mode.value = highlightMode;
     const pct = Math.round(bgOpacity * 100);
     if (slider) slider.value = pct;
@@ -142,9 +146,26 @@
       broadcast();
     };
 
+    // Sort-inclusion toggle (per-tag)
+    var sortable = rule.sortable !== false;  // default true
+    var sortBtn = document.createElement('button');
+    sortBtn.className = 'rule-sort-toggle' + (sortable ? '' : ' excluded');
+    sortBtn.innerHTML = sortable ? '&#9660;' : '&#8854;';  // ▼ or ⊘
+    sortBtn.title = sortable ? 'Included in sort — click to exclude' : 'Excluded from sort — click to include';
+    sortBtn.onclick = function () {
+      sortable = !sortable;
+      rule.sortable = sortable;
+      sortBtn.className = 'rule-sort-toggle' + (sortable ? '' : ' excluded');
+      sortBtn.innerHTML = sortable ? '&#9660;' : '&#8854;';
+      sortBtn.title = sortable ? 'Included in sort — click to exclude' : 'Excluded from sort — click to include';
+      saveSettingsNow();
+      broadcast();
+    };
+
     d.appendChild(swatch);
     d.appendChild(input);
     d.appendChild(tagWrap);
+    d.appendChild(sortBtn);
     d.appendChild(del);
     return d;
   }
@@ -215,7 +236,7 @@
     if (add) add.onclick = function () {
       var tag = prompt('Enter a tag (e.g. tag:mything):');
       if (tag && tag.trim()) {
-        rules.push({ tag: tag.trim(), color: '#7c8aff' });
+        rules.push({ tag: tag.trim(), color: '#7c8aff', sortable: true });
         saveSettingsNow();
         render();
         broadcast();
@@ -247,6 +268,13 @@
     var sort = $('sortToggle');
     if (sort) sort.onchange = function () {
       sortEnabled = sort.checked;
+      saveSettingsNow();
+      broadcast();
+    };
+
+    var sortModeSel = $('sortMode');
+    if (sortModeSel) sortModeSel.onchange = function () {
+      sortMode = sortModeSel.value;
       saveSettingsNow();
       broadcast();
     };
