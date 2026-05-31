@@ -375,6 +375,7 @@ header h1 {
 
 footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 16px 14px;
   border-top: 1px solid var(--border);
@@ -386,6 +387,22 @@ footer {
 footer .btn {
   flex: 1;
   text-align: center;
+}
+
+footer .donate {
+  width: 100%;
+  text-align: center;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+footer .donate a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+footer .donate a:hover {
+  color: var(--text);
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────── */
