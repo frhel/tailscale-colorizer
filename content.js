@@ -32,6 +32,8 @@
   let scanTimer = null;
   let pendingSave = false;
   let dead = false;
+  let busy = false;           // true while we're doing our own DOM work
+  let lastScanTime = 0;       // timestamp of last scanAndColorize completion
 
   // ── Context guard ───────────────────────────────────────────────────────
   // After extension reload/update, chrome.runtime.id becomes undefined.
@@ -191,20 +193,36 @@
     const opacity = settings.bgOpacity || 0.10;
 
     if (mode === 'border-left' || mode === 'both') {
-      // Unified box-shadow approach for all tag counts (1..n)
-      var boxShadow = '';
+      // Pre-filter tags that actually have rules so offsets stay clean
+      var colors = [];
       for (var i = 0; i < tags.length; i++) {
         var rule = ruleMap.get(tags[i].toLowerCase());
-        if (!rule) continue;
-        var offset = -(4 + i * 4);  // negative = left side
-        boxShadow += (boxShadow ? ', ' : '') + offset + 'px 0 0 0 ' + rule.color;
+        if (rule) colors.push(rule.color);
       }
-      var pad = 4 + tags.length * 4;
-      row.style.setProperty('box-shadow', boxShadow, 'important');
-      row.style.setProperty('padding-left', pad + 'px', 'important');
+
+      if (colors.length > 0) {
+        // Build stacked left-side stripes: 4px colour + 1px black separator between each
+        var boxShadow = '';
+        var offset = 4;  // first stripe starts 4px from row edge
+        for (var i = 0; i < colors.length; i++) {
+          boxShadow += (boxShadow ? ', ' : '') + '-' + offset + 'px 0 0 0 ' + colors[i];
+          offset += 4;
+          if (i < colors.length - 1) {
+            // 1px black line between this colour and the next
+            boxShadow += ', -' + offset + 'px 0 0 0 #000';
+            offset += 1;
+          }
+        }
+        row.style.setProperty('box-shadow', boxShadow, 'important');
+        row.style.setProperty('padding-left', offset + 'px', 'important');
+      }
     }
 
     if (mode === 'bg-tint' || mode === 'both') {
+      // No border bars, but still need some breathing room from the left edge
+      if (mode === 'bg-tint') {
+        row.style.setProperty('padding-left', '8px', 'important');
+      }
       // Average all tag colours for a blended background tint
       var r = 0, g = 0, b = 0, count = 0;
       for (var i = 0; i < tags.length; i++) {
@@ -238,6 +256,7 @@
   function removeAllColorization() {
     document.querySelectorAll(`[${COLORIZED_ATTR}]`).forEach(removeRowColorization);
     document.querySelectorAll(`[${PILL_ATTR}]`).forEach(uncolorizePill);
+    document.documentElement.classList.remove('ts-bg-highlight');
   }
 
   // ── Sorting ─────────────────────────────────────────────────────────────
@@ -409,10 +428,18 @@
 
   function scanAndColorize() {
     if (!settings.enabled) return;
+    if (busy) return;                         // already doing our own work
+    if (Date.now() - lastScanTime < 1000) return;  // cooldown: max 1 scan/sec
+
+    busy = true;
+
+    // Toggle CSS hook for bg-tint-dependent styles
+    const useBg = settings.highlightMode === 'bg-tint' || settings.highlightMode === 'both';
+    document.documentElement.classList.toggle('ts-bg-highlight', useBg);
 
     // 1. Discover all tag pills on the page
     const hits = findTagElements(document.body);
-    if (hits.length === 0) return;
+    if (hits.length === 0) { busy = false; return; }
 
     // 2. Collect unique tags & ensure they have rules
     const discovered = [...new Set(hits.map(function (h) { return h.tag; }))];
@@ -455,6 +482,8 @@
 
     // 5. Auto-sort if the sort toggle is enabled
     if (settings.sortEnabled) sortRowsByTag();
+    busy = false;
+    lastScanTime = Date.now();
   }
 
   function debouncedScan() {
@@ -473,6 +502,7 @@
     const root = table || document.body;
 
     observer = new MutationObserver((mutations) => {
+      if (busy) return;  // our own DOM work is in progress — ignore
       for (const m of mutations) {
         if (m.type === 'childList' && m.addedNodes.length > 0) {
           debouncedScan();
@@ -485,6 +515,7 @@
     // Also watch body for table replacement
     if (root !== document.body) {
       const bodyOb = new MutationObserver((mutations) => {
+        if (busy) return;
         for (const m of mutations) {
           if (m.type !== 'childList') continue;
           for (const node of m.addedNodes) {
@@ -523,8 +554,26 @@
 
   // ── Init ───────────────────────────────────────────────────────────────
 
+  // ── Injected styles ─────────────────────────────────────────────────────
+  function injectStyles() {
+    const style = document.createElement('style');
+    style.id = 'ts-colorizer-styles';
+    style.textContent = `
+      table.tb tbody tr {
+        border-bottom: 1px solid #000 !important;
+      }
+
+      /* Update-link SVGs need to be white on dark background tints */
+      html.ts-bg-highlight table.tb a[href*="/update/"] svg {
+        color: #fff !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   async function init() {
     if (!isAlive()) return;
+    injectStyles();
     await loadSettings();
     if (settings.enabled) {
       scanAndColorize();
