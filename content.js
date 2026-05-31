@@ -31,10 +31,39 @@
   let observer = null;
   let scanTimer = null;
   let pendingSave = false;
+  let dead = false;
+
+  // ── Context guard ───────────────────────────────────────────────────────
+  // After extension reload/update, chrome.runtime.id becomes undefined.
+  // Any chrome.* API call will throw "Extension context invalidated".
+  // We detect this once and permanently disable ourselves.
+
+  function isAlive() {
+    if (dead) return false;
+    try {
+      if (!chrome || !chrome.runtime || !chrome.runtime.id) {
+        dead = true;
+        teardown();
+        return false;
+      }
+      return true;
+    } catch (_) {
+      dead = true;
+      teardown();
+      return false;
+    }
+  }
+
+  function teardown() {
+    if (observer) { observer.disconnect(); observer = null; }
+    clearTimeout(scanTimer);
+    removeAllColorization();
+  }
 
   // ── Settings I/O ───────────────────────────────────────────────────────
 
   async function loadSettings() {
+    if (!isAlive()) return;
     let raw;
     try {
       const stored = await chrome.storage.local.get('tsColorizerSettings');
@@ -54,15 +83,20 @@
   }
 
   function saveSettings() {
+    if (!isAlive()) return;
     if (pendingSave) return;
     pendingSave = true;
     setTimeout(async () => {
-      await chrome.storage.local.set({ tsColorizerSettings: settings });
+      if (!isAlive()) { pendingSave = false; return; }
+      try {
+        await chrome.storage.local.set({ tsColorizerSettings: settings });
+      } catch (_) { /* context lost */ }
       pendingSave = false;
     }, 300);
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (!isAlive()) return;
     if (area === 'local' && changes.tsColorizerSettings) {
       var wasSortEnabled = settings.sortEnabled;
       settings = changes.tsColorizerSettings.newValue || { ...DEFAULT_SETTINGS };
@@ -76,7 +110,7 @@
       }
     }
     if (area === 'local' && changes.tsRescanRequest) {
-      rescan();
+      rescan().catch(function () {});  // context might be dead
     }
   });
 
@@ -424,8 +458,11 @@
   }
 
   function debouncedScan() {
+    if (!isAlive()) return;
     clearTimeout(scanTimer);
-    scanTimer = setTimeout(scanAndColorize, 300);
+    scanTimer = setTimeout(function () {
+      if (isAlive()) scanAndColorize();
+    }, 300);
   }
 
   // ── MutationObserver ───────────────────────────────────────────────────
@@ -468,6 +505,7 @@
   // ── Rescan helper (always reloads settings from storage first) ──────────
 
   async function rescan() {
+    if (!isAlive()) return;
     await loadSettings();
     removeAllColorization();
     if (settings.enabled) scanAndColorize();
@@ -476,6 +514,7 @@
   // ── Message handling ───────────────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!isAlive()) return;
     if (msg.action === 'rescan') {
       rescan().then(() => sendResponse({ ok: true }));
       return true;  // keep channel open for async response
@@ -485,6 +524,7 @@
   // ── Init ───────────────────────────────────────────────────────────────
 
   async function init() {
+    if (!isAlive()) return;
     await loadSettings();
     if (settings.enabled) {
       scanAndColorize();

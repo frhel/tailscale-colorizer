@@ -6,6 +6,8 @@
 
 const DEFAULTS = {
   enabled: true,
+  sortEnabled: false,
+  sortMode: 'frequency',
   rules: [],
   highlightMode: 'border-left',
   bgOpacity: 0.10,
@@ -30,9 +32,12 @@ async function ensureValidSettings() {
       await chrome.storage.local.set({ tsColorizerSettings: { ...DEFAULTS } });
       return;
     }
-    // Sanitize individual fields
+    // Sanitize known fields; spread raw to future-proof against new keys
     const clean = {
+      ...raw,
       enabled:       raw.enabled !== false,
+      sortEnabled:   raw.sortEnabled === true,
+      sortMode:      raw.sortMode || 'frequency',
       rules:         Array.isArray(raw.rules) ? raw.rules : [],
       highlightMode: raw.highlightMode || 'border-left',
       bgOpacity:     typeof raw.bgOpacity === 'number' ? raw.bgOpacity : 0.10,
