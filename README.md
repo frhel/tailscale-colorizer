@@ -1,6 +1,6 @@
 # Tailscale Tag Colorizer
 
-A Chrome extension (Manifest V3) that colorizes machines on the [Tailscale admin console](https://login.tailscale.com/admin/machines) by their tags. Never confuse `tag:prod` with `tag:staging` again.
+A Chrome extension (Manifest V3) that colorizes machines on the [Tailscale admin console](https://login.tailscale.com/admin/machines) by their tags. Tag-based colorization for Tailscale fleets.
 
 ---
 
