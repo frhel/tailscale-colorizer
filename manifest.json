@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tailscale Tag Colorizer",
-  "version": "0.3.3",
+  "version": "0.3.2.1",
   "description": "Tag-based colorization for Tailscale fleets.",
   "permissions": ["storage", "tabs"],
   "host_permissions": ["https://login.tailscale.com/*"],
