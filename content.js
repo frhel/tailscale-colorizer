@@ -1,5 +1,5 @@
 // ─── Tailscale Tag Colorizer — Content Script ─────────────────────────────
-// Injected into login.tailscale.com. Auto-discovers machine tags in the
+// Injected into console.tailscale.com/admin/machines. Auto-discovers machine tags in the
 // admin console and colors rows using a deterministic palette. No hardcoded
 // defaults — finds whatever tags are on the page.
 

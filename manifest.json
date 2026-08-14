@@ -1,16 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Tailscale Tag Colorizer",
-  "version": "0.3.2.1",
+  "version": "0.3.3",
   "description": "Tag-based colorization for Tailscale fleets.",
   "permissions": ["storage", "tabs"],
-  "host_permissions": ["https://login.tailscale.com/*"],
+  "host_permissions": ["https://console.tailscale.com/admin/machines*"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://login.tailscale.com/*"],
+      "matches": ["https://console.tailscale.com/admin/machines*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

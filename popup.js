@@ -191,7 +191,7 @@
 
   async function broadcast() {
     try {
-      var tabs = await chrome.tabs.query({ url: 'https://login.tailscale.com/*' });
+      var tabs = await chrome.tabs.query({ url: 'https://console.tailscale.com/admin/machines*' });
       for (var i = 0; i < tabs.length; i++) {
         chrome.tabs.sendMessage(tabs[i].id, { action: 'rescan' }).catch(function () {});
       }

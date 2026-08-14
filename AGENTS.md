@@ -81,4 +81,4 @@ Both skip mutations when `busy` is true.
 
 ## Permissions
 
-`storage` (settings), `tabs` (direct messaging to open Tailscale tabs), `host: login.tailscale.com/*` (content script injection).
+`storage` (settings), `tabs` (direct messaging to open Tailscale tabs), `host: console.tailscale.com/admin/machines*` (content script injection).
